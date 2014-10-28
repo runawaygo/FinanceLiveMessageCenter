@@ -18,11 +18,13 @@ type LiveMessage struct {
 	Type    string
 }
 
-var ticker = time.NewTicker(2 * time.Second)
+const durationTime = 200 * time.Second
+
+var ticker = time.NewTicker(durationTime)
 var quit = make(chan struct{})
 
 func getLiveMessageCollection() []LiveMessage {
-	now := time.Now().Add(-time.Second * 2)
+	now := time.Now().Add(-durationTime)
 	url := "http://b.1stool.com/index.php?m=index&c=index&a=bcajax&type=all&btype=all&lasttime=" + strconv.FormatInt(now.Unix(), 10)
 	fmt.Println(url)
 	resp, _ := http.Get(url)
