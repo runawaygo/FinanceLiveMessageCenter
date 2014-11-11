@@ -9,54 +9,19 @@ import (
 	"github.com/vmihailenco/msgpack"
 )
 
-type Message struct {
-	Type int64
-	Data []string
+type SocketIOMessage struct {
 	Nsp  string
+	Type string
+	Data map[interface{}]interface{}
+	Room string
 }
 
-type MessageOption struct {
-	Except []string
-	Rooms  []string
-	Flags  map[string]bool
+var cmdMap = map[string]uint16{
+	"message": MESSAGE,
 }
 
-func testMsgpack() {
-	message := Message{
-		Type: 2,
-		Data: []string{"superwolf", "fox"},
-		Nsp:  "/superowlf",
-	}
-	message0 := Message{
-		Type: 1,
-		Nsp:  "/fox",
-	}
-	msg, err := msgpack.Marshal(message, message0)
-	fmt.Println(string(msg))
-	var message1 Message
-	var message2 Message
-	err = msgpack.Unmarshal(msg, &message1, &message2)
-
-	fmt.Println(message1.Nsp)
-	fmt.Println(message2.Nsp)
-	fmt.Println(message)
-	fmt.Println(err)
-
-}
-
-func testMsgpack1() {
-
-}
-
-func main() {
-	// testMsgpack1()
-	c, err := redis.Dial("tcp", "127.0.0.1:6379")
-	if err != nil {
-		panic(err)
-		return
-	}
-
-	c1, err := redis.Dial("tcp", "127.0.0.1:6379")
+func socketIOListen(h *hub) {
+	c, err := redis.Dial("tcp", REDIS_CONFIG.Host)
 	if err != nil {
 		panic(err)
 		return
@@ -66,33 +31,32 @@ func main() {
 	psc.PSubscribe("socket.io#*")
 	for {
 		switch v := psc.Receive().(type) {
-		case redis.Message:
-			fmt.Printf("%s: message: %s\n", v.Channel, v.Data)
-		case redis.Subscription:
-			fmt.Printf("%s: %s %d\n", v.Channel, v.Kind, v.Count)
 		case redis.PMessage:
-			var message = map[string]interface{}{}
+			var messageData = map[string]interface{}{}
 			var messageOpt = map[string]interface{}{}
-			var messageArray = []interface{}{message, messageOpt}
-
-			// fmt.Println(message, messageOpt)
-			// fmt.Printf("%s: message: %s\n", v.Channel, v.Data)
-			fmt.Println(string(v.Data))
+			var messageArray = []interface{}{messageData, messageOpt}
 
 			msgpack.Unmarshal(v.Data, &messageArray)
-			fmt.Println(messageArray)
+			message := &SocketIOMessage{
+				Nsp:  messageData["nsp"].(string),
+				Room: messageOpt["rooms"].([]interface{})[0].(string),
+				Type: messageData["data"].([]interface{})[0].(string),
+				Data: messageData["data"].([]interface{})[1].(map[interface{}]interface{}),
+			}
 
-			c1.Send("PUBLISH", "socket.io#abc", v.Data)
-			c1.Flush()
+			fmt.Println(message)
+
+			h.broadcast <- &Broadcast{
+				Nsp:  message.Nsp,
+				Room: message.Room,
+				Message: Message{
+					Cmd:     cmdMap[message.Type],
+					Content: &message.Data,
+				},
+			}
 
 		case error:
 			return
 		}
 	}
 }
-
-// func BuildMessage(data []byte) []map[string]interface{} {
-// 	var messageArray = []map[string]interface{}{map[string]interface{}{}, map[string]interface{}{}}
-// 	err := msgpack.Unmarshal(v.Data, &messageArray)
-// 	return messageArray, err
-// }

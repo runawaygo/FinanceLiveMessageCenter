@@ -1,15 +1,18 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"net"
 	"time"
 )
 
+const (
+	pingWait = time.Second
+)
+
 func main() {
-	conn, err := net.Dial("tcp", "127.0.0.1:8080")
-	testData := map[string]interface{}{"name": "superwolf", "sex": 1}
+	// conn, err := net.Dial("tcp", "192.168.26.90:8080")
+	conn, err := net.Dial("tcp", "localhost:8080")
 
 	if err != nil {
 		// handle error
@@ -17,20 +20,18 @@ func main() {
 		return
 	}
 
+	session := NewSession(conn, &h, messageHandler, authHandler)
+
+	go session.ReadPump()
+	go session.WritePump()
+
+	ticker := time.NewTicker(time.Second)
 	for {
-		data := packageObject(2, testData)
-		fmt.Println(data)
-		conn.Write(data)
+		message := Message{Cmd: MESSAGE, Content: &map[interface{}]interface{}{"abc": "superwolf"}}
+		fmt.Println("superwolf")
+		session.send <- message
+		<-ticker.C
 
-		status, err := bufio.NewReader(conn).ReadString('3')
-		if err != nil {
-			fmt.Println("Error")
-			fmt.Println(err)
-			continue
-		}
-		fmt.Println(status)
-		fmt.Println(time.Now())
-
+		// session.Close()
 	}
-
 }

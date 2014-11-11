@@ -1,11 +1,13 @@
 package main
 
 import (
-	"bufio"
 	// "encoding/binary"
-	"fmt"
 	"net"
 	"time"
+)
+
+const (
+	pingWait = time.Second * 1
 )
 
 func main() {
@@ -14,27 +16,17 @@ func main() {
 	if err != nil {
 		// handle error
 	}
+	go h.run()
+	go socketIOListen(&h)
+
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			// handle error
 			continue
 		}
-		go handleConnection(conn)
-	}
-}
-
-func handleConnection(conn net.Conn) {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
-	reader := bufio.NewReader(conn)
-	for {
-
-		data := readMessage(reader)
-		fmt.Println(data)
-
-		<-ticker.C
-		fmt.Println(time.Now())
+		session := NewSession(conn, &h, messageHandler, authHandler)
+		go session.ReadPump()
+		go session.WritePump()
 	}
 }

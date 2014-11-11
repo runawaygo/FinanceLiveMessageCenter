@@ -1,22 +1,11 @@
 package main
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
+	// "time"
 )
 
 func main() {
-	buf := new(bytes.Buffer)
-	var data = []interface{}{
-		uint16(8),
-	}
-	for _, v := range data {
-		err := binary.Write(buf, binary.LittleEndian, v)
-		if err != nil {
-			fmt.Println("binary.Write failed:", err)
-		}
-	}
-	fmt.Printf("%x", buf.Bytes())
-	fmt.Println(len(buf.Bytes()))
+	var abc = make(map[string]map[string]map[string]bool)
+	fmt.Println(abc)
 }
