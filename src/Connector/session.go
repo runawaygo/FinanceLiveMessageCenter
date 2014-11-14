@@ -125,7 +125,7 @@ func (session *Session) sendCmd(cmd uint16) {
 	}
 }
 
-func (session *session) auth(message *Message) {
+func (session *Session) auth(nsp string, message *Message) {
 	uid, err := session.authHandler(message)
 	if err != nil {
 		session.sendCmd(AUTH_FAILED)
@@ -181,7 +181,7 @@ func (session *Session) ReadPump() {
 			message := &Message{Cmd: cmd, Content: &dict}
 
 			if nsp, ok := authMap[cmd]; ok {
-				session.auth(message)
+				session.auth(nsp, message)
 				continue
 			}
 

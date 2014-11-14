@@ -1,8 +1,17 @@
-package gotest
+package main
 
 import (
+	// "bufio"
+	// "bytes"
+	// "io/ioutil"
 	"testing"
+
+	. "github.com/smartystreets/goconvey/convey"
 )
 
-func Test_Session(t *testing.T) {
+func TestMessageReader(t *testing.T) {
+
+	Convey("Lalala", t, func() {
+		So(string("[1]"), ShouldEqual, "[1]")
+	})
 }

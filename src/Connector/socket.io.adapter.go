@@ -20,7 +20,7 @@ var cmdMap = map[string]uint16{
 	"message": MESSAGE,
 }
 
-func socketIOListen(h *hub) {
+func socketIOListen(h IHub) {
 	c, err := redis.Dial("tcp", REDIS_CONFIG.Host)
 	if err != nil {
 		panic(err)

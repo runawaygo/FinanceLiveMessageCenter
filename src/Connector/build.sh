@@ -1,1 +1,1 @@
- GOOS=linux GOARCH=386 CGO_ENABLED=0 go build listen.go lib.go session.go cmd_map.go hub.go message.go message_handler.go socket.io.adapter.go redis_config.go
+ GOOS=linux GOARCH=386 CGO_ENABLED=0 go build listen.go lib.go session.go cmd_map.go hub.go message.go message_handler.go socket.io.adapter.go redis_config.go pool.go
