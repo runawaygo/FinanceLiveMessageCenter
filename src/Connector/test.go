@@ -13,6 +13,27 @@ type abc struct {
 }
 
 func main() {
+	thriftPool := NewClientPool(
+		func() (interface{}, error) { return "superwolf", nil },
+		func(resource interface{}) error { return nil },
+		3,
+		30,
+	)
+	defer thriftPool.ClosePool()
+
+	go thriftPool.Start()
+
+	for i := 0; i < 30; i++ {
+		client := thriftPool.Get()
+		// go func() {
+		// 	thriftPool.Put(client)
+		// }()
+		println(thriftPool.activeCount)
+		println(thriftPool.idleCount)
+	}
+}
+
+func main1() {
 	dd := &abc{}
 	dd.Pool.Put("hehe")
 	aaa := dd.Pool.Get()

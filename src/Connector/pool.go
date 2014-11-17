@@ -1,17 +1,16 @@
 package main
 
 import (
-	"sync"
+	"container/list"
 	"time"
 )
 
 type ClientPool struct {
-	sync.Pool
 	// Dial is an application supplied function for creating new connections.
-	Dial func() (interface{}, error)
+	dialFn func() (interface{}, error)
 
 	// Close is an application supplied functoin for closeing connections.
-	Close func(c interface{}) error
+	closeFn func(c interface{}) error
 
 	// TestOnBorrow is an optional application supplied function for checking
 	// the health of an idle connection before the connection is used again by
@@ -20,8 +19,8 @@ type ClientPool struct {
 	// closed.
 	TestOnBorrow func(c interface{}, t time.Time) error
 
-	maxCount     int
-	maxIdleCount int
+	maxActiveCount int
+	maxIdleCount   int
 
 	activeCount int
 	idleCount   int
@@ -31,11 +30,14 @@ type ClientPool struct {
 	// the timeout to a value less than the server's timeout.
 	IdleTimeout time.Duration
 
-	closed  bool
+	closed bool
+
+	close   chan bool
 	request chan bool
-	push    chan idleConn
-	pop     chan idleConn
-	isBack  chan int
+	in      chan interface{}
+	out     chan interface{}
+
+	idleList list.List
 }
 
 type idleConn struct {
@@ -45,62 +47,105 @@ type idleConn struct {
 
 // New creates a new pool. This function is deprecated. Applications should
 // initialize the Pool fields directly as shown in example.
-func New(dialFn func() (interface{}, error), closeFn func(c interface{}) error, maxIdle int) *Pool {
-	return &Pool{Dial: dialFn, Close: closeFn, MaxIdle: maxIdle}
+func NewClientPool(dialFn func() (interface{}, error), closeFn func(c interface{}) error, maxIdleCount int, maxActiveCount int) *ClientPool {
+	return &ClientPool{
+		dialFn:         dialFn,
+		closeFn:        closeFn,
+		maxIdleCount:   maxIdleCount,
+		maxActiveCount: maxActiveCount,
+		request:        make(chan bool),
+		in:             make(chan interface{}),
+		out:            make(chan interface{}),
+		close:          make(chan bool),
+	}
 }
 
 // Get gets a connection. The application must close the returned connection.
 // This method always returns a valid connection so that applications can defer
 // error handling to the first use of the connection.
-func (p *Pool) GetClient() interface{} {
+func (p *ClientPool) Get() interface{} {
 	p.request <- true
-	return <-p.pop
+	return <-p.out
 }
 
 // Put adds conn back to the pool, use forceClose to close the connection forcely
-func (p *Pool) PutClient(c interface{}) error {
-	p.push <- c
+func (p *ClientPool) Put(c interface{}) {
+	p.in <- c
 }
 
-func (p *Pool) Start() {
-	var client idleConn
+func (p *ClientPool) Start() {
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
 	for {
-		fmt.Println("write pump")
 		select {
 		case <-p.request:
-			var client interface{}
-			if p.activeCount >= p.maxCount {
-				client = <-p.push
-			} else {
-				if p.idleCount > 0 {
-					p.idleCount--
-				}
-				p.activeCount++
-				client = p.Get().(idleConn).c
+			if p.activeCount >= p.maxActiveCount {
+				p.putToIdle(<-p.in)
+				println(p.idleCount)
 			}
-			p.pop <- client
+			p.out <- p.getFromIdle()
 
-		case client := <-p.push:
-			p.activeCount--
-			if p.idleCount >= p.maxIdleCount {
-				continue
-			}
-			p.Put(idleConn{c: client, t: time.Now()})
-			p.idleCount++
+		case client := <-p.in:
+			p.putToIdle(client)
+
+		case <-p.close:
+			break
 		}
 	}
 }
 
-// Relaase releases the resources used by the pool.
-func (p *Pool) Release() error {
-	p.mu.Lock()
-	idle := p.idle
-	p.idle.Init()
-	p.closed = true
-	p.active -= idle.Len()
-	p.mu.Unlock()
-	for e := idle.Front(); e != nil; e = e.Next() {
-		p.Close(e.Value.(idleConn).c)
+func (p *ClientPool) getFromIdle() interface{} {
+	defer func() {
+		if x := recover(); x != nil {
+			println("run time panic: %v", x)
+		}
+	}()
+
+	var client interface{}
+	var err error
+
+	if p.idleCount == 0 {
+		client, err = p.dialFn()
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		p.idleCount--
+		ic := p.idleList.Back()
+		p.idleList.Remove(ic)
+		client = ic.Value.(idleConn).c
 	}
-	return nil
+
+	p.activeCount++
+	return client
+}
+
+func (p *ClientPool) putToIdle(client interface{}) {
+	p.activeCount--
+
+	if p.idleCount >= p.maxIdleCount {
+		return
+	}
+
+	p.idleList.PushFront(idleConn{t: time.Now(), c: client})
+	p.idleCount++
+}
+
+// Relaase releases the resources used by the pool.
+func (p *ClientPool) ClosePool() {
+	p.close <- true
+	if p.closed {
+		return
+	}
+
+	p.closed = true
+
+	for e := p.idleList.Front(); e != nil; e = e.Next() {
+		err := p.closeFn(e.Value.(idleConn).c)
+		println(err)
+	}
+
+	p.idleList.Init()
 }
