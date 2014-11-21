@@ -70,6 +70,9 @@ func (p *ClientPool) Get() interface{} {
 
 // Put adds conn back to the pool, use forceClose to close the connection forcely
 func (p *ClientPool) Put(c interface{}) {
+	if p.closed {
+		return
+	}
 	p.in <- c
 }
 
@@ -124,28 +127,29 @@ func (p *ClientPool) getFromIdle() interface{} {
 
 func (p *ClientPool) putToIdle(client interface{}) {
 	p.activeCount--
-
 	if p.idleCount >= p.maxIdleCount {
 		return
 	}
-
 	p.idleList.PushFront(idleConn{t: time.Now(), c: client})
 	p.idleCount++
 }
 
 // Relaase releases the resources used by the pool.
 func (p *ClientPool) ClosePool() {
-	p.close <- true
 	if p.closed {
 		return
 	}
 
 	p.closed = true
+	p.close <- true
 
 	for e := p.idleList.Front(); e != nil; e = e.Next() {
 		err := p.closeFn(e.Value.(idleConn).c)
 		println(err)
 	}
 
+	p.idleCount = 0
+	p.activeCount = 0
 	p.idleList.Init()
+
 }

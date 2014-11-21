@@ -18,6 +18,7 @@ func main() {
 	}
 	go h.run()
 	go socketIOListen(&h)
+	go thriftPool.Start()
 
 	for {
 		conn, err := ln.Accept()

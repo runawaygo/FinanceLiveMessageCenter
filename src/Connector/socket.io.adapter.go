@@ -46,14 +46,14 @@ func socketIOListen(h IHub) {
 
 			fmt.Println(message)
 
-			h.broadcast <- &Broadcast{
+			h.Broadcast(&Broadcast{
 				Nsp:  message.Nsp,
 				Room: message.Room,
 				Message: Message{
 					Cmd:     cmdMap[message.Type],
 					Content: &message.Data,
 				},
-			}
+			})
 
 		case error:
 			return
