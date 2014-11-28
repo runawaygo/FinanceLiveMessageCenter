@@ -3,11 +3,12 @@ package main
 import (
 	// "encoding/binary"
 	"net"
-	"time"
+	// "time"
 )
 
 const (
-	pingWait = time.Second * 1
+// pingWait = time.Microsecond * 100
+// pingWait = time.Second
 )
 
 func main() {
@@ -18,7 +19,7 @@ func main() {
 	}
 	go h.run()
 	go socketIOListen(&h)
-	go thriftPool.Start()
+	// go statusServicePool.Start()
 
 	for {
 		conn, err := ln.Accept()
@@ -26,7 +27,7 @@ func main() {
 			// handle error
 			continue
 		}
-		session := NewSession(conn, &h, messageHandler, authHandler)
+		session := NewSession(conn, &h, messageHandler, authHandler, disconnectHandler)
 		go session.ReadPump()
 		go session.WritePump()
 	}

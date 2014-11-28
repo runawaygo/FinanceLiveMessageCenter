@@ -21,7 +21,6 @@ func Test_ClientPool_Get(t *testing.T) {
 		go thriftPool.Start()
 
 		client := thriftPool.Get()
-		println(client.(string))
 		thriftPool.ClosePool()
 
 		So(client.(string), ShouldEqual, string("superwolf"))
@@ -47,9 +46,8 @@ func Test_MaxIdle(t *testing.T) {
 			}()
 		}
 
-		time.Sleep(time.Second * 2)
+		time.Sleep(time.Second * 1)
 
-		println(thriftPool.idleList.Len())
 		So(thriftPool.idleCount, ShouldEqual, 3)
 	})
 }
@@ -72,7 +70,6 @@ func Test_FullLoad(t *testing.T) {
 		go func() {
 			<-ticker.C
 			thriftPool.Put(client)
-			println(thriftPool.idleCount)
 		}()
 
 		client2 := thriftPool.Get()
@@ -97,7 +94,6 @@ func Test_FullLoad(t *testing.T) {
 		go func() {
 			<-ticker.C
 			thriftPool.Put(client)
-			println(thriftPool.idleCount)
 		}()
 
 		client2 := thriftPool.Get()

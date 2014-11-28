@@ -6,7 +6,7 @@ import (
 	"net"
 )
 
-var thriftPool = NewClientPool(
+var statusServicePool = NewClientPool(
 	func() (interface{}, error) {
 		trans, err := thrift.NewTSocket(net.JoinHostPort(MESSAGE_SERVICE_CONFIG.Host, MESSAGE_SERVICE_CONFIG.Port))
 		if err != nil {
@@ -30,69 +30,19 @@ var thriftPool = NewClientPool(
 	MESSAGE_SERVICE_CONFIG.MaxActive,
 )
 
-// func getThriftPool() *ClientPool {
-
-// 	return
-// }
-
-func csrAuth(csrInfo *map[interface{}]interface{}) (string, error) {
-	// //Auth
-	// authClient := authThriftPool.Get()(*authservice.AuthServiceClient)
-	// defer authThriftPool.Put(authClient)
-	// token := authservice.NewUserToken()
-	// userinfo := authClient.getUserinfoByToken()
-
-	// client := thriftPool.Get().(*messageservice.MessageServiceClient)
-	// defer thriftPool.Put(client)
-
-	// userId := messageservice.NewUserId()
-	// dds := "mobile"
-	// userId.Uid = "123"
-	// userId.TypeA1 = "csr"
-	// userId.ClientType = &dds
-
-	// err := client.Online(userId)
-	// return userinfo.uid, err
-
-	return "superfox", nil
-}
-
-func customerAuth(customerInfo *map[interface{}]interface{}) (string, error) {
-	// authClient := authThriftPool.Get()(*authservice.AuthServiceClient)
-	// defer authThriftPool.Put(authClient)
-	// token := authservice.NewUserToken()
-	// userinfo := authClient.getUserinfoByToken()
-
-	// client := thriftPool.Get().(*messageservice.MessageServiceClient)
-	// defer thriftPool.Put(client)
-
-	// userId := messageservice.NewUserId()
-	// dds := "mobile"
-	// userId.Uid = "123"
-	// userId.TypeA1 = "csr"
-	// userId.ClientType = &dds
-
-	// err := client.Online(userId)
-	// return userinfo.uid, err
-
-	return "superowlf", nil
-}
-
-func pipe(message *Message) {
+func pipe(message *Message) error {
 	println(message)
+	return nil
 }
 
-func authHandler(message *Message) (string, error) {
-	switch message.Cmd {
-	case CUSTOMER_AUTH:
-		return customerAuth(message.Content)
-	case CSR_AUTH:
-		return csrAuth(message.Content)
-	default:
-		panic("传入消息类型不合法!")
-	}
+func authHandler(message *Message) (string, string, error) {
+	return "superowlf", "mobile", nil
 }
 
-func messageHandler(message *Message) {
-	pipe(message)
+func messageHandler(message *Message) error {
+	return pipe(message)
+}
+
+func disconnectHandler(uid string) {
+	// pipe(message)
 }

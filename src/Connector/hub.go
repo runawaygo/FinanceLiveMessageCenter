@@ -8,67 +8,76 @@ package main
 // connections.
 type IHub interface {
 	Broadcast(broadcast *Broadcast)
-	Register(session *Session)
-	Unregister(session *Session)
+	Register(session ISession)
+	Unregister(session ISession)
+}
+
+type nsp struct {
+	sessions map[string]ISession
+	rooms    map[string]map[string]bool
 }
 
 type hub struct {
 	// Registered connections.
-	connections map[*Session]string
-
-	sessions map[string]*Session
-
-	nsp map[string]map[string]map[*Session]bool
+	nsps map[string]*nsp
 
 	broadcast chan *Broadcast
 
-	register chan *Session
+	register chan ISession
 
-	unregister chan *Session
+	unregister chan ISession
 }
 
 var h = hub{
-	broadcast:   make(chan *Broadcast),
-	register:    make(chan *Session),
-	unregister:  make(chan *Session),
-	connections: make(map[*Session]string),
-	sessions:    make(map[string]*Session),
-	nsp:         make(map[string]map[string]map[*Session]bool),
+	broadcast:  make(chan *Broadcast),
+	register:   make(chan ISession),
+	unregister: make(chan ISession),
+	nsps:       make(map[string]*nsp),
 }
 
-func (h *hub) Join(nsp string, room string, uid string) {
-	if _, ok := h.sessions[uid]; !ok {
+func (h *hub) Join(nspName string, room string, uid string) {
+	if _, ok := h.nsps[nspName].sessions[uid]; !ok {
 		return
 	}
 
-	if _, ok := h.nsp[nsp]; !ok {
-		h.nsp[nsp] = make(map[string]map[*Session]bool)
+	if _, ok := h.nsps[nspName].rooms[room]; !ok {
+		h.nsps[nspName].rooms[room] = make(map[string]bool)
 	}
 
-	if _, ok := h.nsp[nsp][room]; !ok {
-		h.nsp[nsp][room] = make(map[*Session]bool)
-	}
-
-	h.nsp[nsp][room][h.sessions[uid]] = true
+	h.nsps[nspName].rooms[room][uid] = true
 }
 
-func (h *hub) Left(nsp string, room string, uid string) {
-	if _, ok := h.sessions[uid]; !ok {
+func (h *hub) Left(nspName string, room string, uid string) {
+	if _, ok := h.nsps[nspName].sessions[uid]; !ok {
 		return
 	}
 
-	if _, ok := h.nsp[nsp][room]; !ok {
+	if _, ok := h.nsps[nspName].rooms[room]; !ok {
 		return
 	}
 
-	delete(h.nsp[nsp][room], h.sessions[uid])
+	delete(h.nsps[nspName].rooms[room], uid)
 }
 
-func (h *hub) Register(session *Session) {
+func (h *hub) Register(session ISession) {
+	nspName := session.GetNsp()
+	if _, ok := h.nsps[nspName]; !ok {
+		h.nsps[nspName] = &nsp{
+			sessions: make(map[string]ISession),
+			rooms:    make(map[string]map[string]bool),
+		}
+	}
 	h.register <- session
+
+	uid := session.GetUid()
+	h.Join(nspName, uid, uid)
 }
 
-func (h *hub) Unregister(session *Session) {
+func (h *hub) Unregister(session ISession) {
+	nspName := session.GetNsp()
+	uid := session.GetUid()
+
+	h.Left(nspName, uid, uid)
 	h.unregister <- session
 }
 
@@ -76,34 +85,43 @@ func (h *hub) Broadcast(broadcast *Broadcast) {
 	h.broadcast <- broadcast
 }
 
+func (h *hub) BroadcastWithArgs(nsp string, room string, message *Message) {
+	h.Broadcast(&Broadcast{
+		Nsp:     nsp,
+		Room:    room,
+		Message: message,
+	})
+}
+
 func (h *hub) run() {
 	for {
 		select {
 		case c := <-h.register:
-			h.connections[c] = c.uid
-			h.sessions[c.uid] = c
+			sessionId := c.GetUid()
+			nspName := c.GetNsp()
+
+			h.nsps[nspName].sessions[sessionId] = c
 
 		case c := <-h.unregister:
-			if _, ok := h.connections[c]; ok {
-				delete(h.connections, c)
-				close(c.send)
-			}
-			if _, ok := h.sessions[c.uid]; ok {
-				delete(h.sessions, c.uid)
+			sessionId := c.GetUid()
+			nspName := c.GetNsp()
+
+			if _, ok := h.nsps[nspName].sessions[sessionId]; ok {
+				delete(h.nsps[nspName].sessions, sessionId)
 			}
 
 		case b := <-h.broadcast:
-			if _, ok := h.nsp[b.Nsp][b.Room]; !ok {
+			if _, ok := h.nsps[b.Nsp].rooms[b.Room]; !ok {
 				continue
 			}
-
-			for c := range h.nsp[b.Nsp][b.Room] {
-				select {
-				case c.send <- b.Message:
-				default:
-					close(c.send)
-					delete(h.nsp[b.Nsp][b.Room], c)
+			sessions := h.nsps[b.Nsp].sessions
+			for sessionId := range h.nsps[b.Nsp].rooms[b.Room] {
+				if session, ok := sessions[sessionId]; ok {
+					session.Send(b.Message)
+					continue
 				}
+
+				delete(h.nsps[b.Nsp].rooms[b.Room], sessionId)
 			}
 		}
 	}

@@ -49,7 +49,7 @@ func socketIOListen(h IHub) {
 			h.Broadcast(&Broadcast{
 				Nsp:  message.Nsp,
 				Room: message.Room,
-				Message: Message{
+				Message: &Message{
 					Cmd:     cmdMap[message.Type],
 					Content: &message.Data,
 				},

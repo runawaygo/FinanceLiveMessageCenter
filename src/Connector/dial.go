@@ -7,7 +7,8 @@ package main
 // )
 
 // const (
-// 	pingWait = time.Second
+// // pingWait = time.Microsecond * 100
+// // pingWait = time.Second
 // )
 
 // func main() {
@@ -20,7 +21,7 @@ package main
 // 		return
 // 	}
 
-// 	session := NewSession(conn, &h, messageHandler, authHandler)
+// 	session := NewSession(conn, &h, messageHandler, authHandler, disconnectHandler)
 
 // 	go session.ReadPump()
 // 	go session.WritePump()
@@ -29,7 +30,7 @@ package main
 // 	for {
 // 		message := Message{Cmd: MESSAGE, Content: &map[interface{}]interface{}{"abc": "superwolf"}}
 // 		fmt.Println("superwolf")
-// 		session.send <- message
+// 		session.send <- &message
 // 		<-ticker.C
 
 // 		// session.Close()

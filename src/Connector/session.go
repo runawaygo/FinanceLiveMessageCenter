@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -14,44 +15,77 @@ import (
 
 const (
 	// Time allowed to write a message to the peer.
-	// pingWait   = 10 * time.Second
-	// pingWait   = time.Second * 10
+	pingWait   = time.Second
 	pingPeriod = (pingWait * 9) / 10
 )
 
-var authMap = map[uint16]string{CSR_AUTH: "csr", CUSTOMER_AUTH: "customer"}
+type ISession interface {
+	Send(message *Message)
+	GetUid() string
+	GetNsp() string
+}
 
 type Session struct {
-	Reader         *bufio.Reader
-	Conn           net.Conn
-	send           chan Message
-	hub            IHub
-	uid            string
-	messageHandler func(message *Message)
-	authHandler    func(message *Message) (string, error)
+	*bufio.Reader
+	net.Conn
+
+	send       chan *Message
+	hub        IHub
+	isAuthed   bool
+	uid        string
+	clientType string
+	nsp        string
+
+	once sync.Once
+
+	messageHandler    func(message *Message) error
+	authHandler       func(message *Message) (string, string, error)
+	disconnectHandler func(uid string)
 }
 
 func NewSession(
 	conn net.Conn,
 	h IHub,
-	messageHandler func(message *Message),
-	authHandler func(message *Message) (string, error),
+	messageHandler func(message *Message) error,
+	authHandler func(message *Message) (string, string, error),
+	disconnectHandler func(uid string),
 ) *Session {
 
 	s := new(Session)
 	s.Conn = conn
 	s.Reader = bufio.NewReader(conn)
-	s.send = make(chan Message)
+	s.send = make(chan *Message)
 	s.hub = h
+
+	s.isAuthed = false
 	s.uid = ""
+	s.clientType = ""
+	s.nsp = ""
+
 	s.messageHandler = messageHandler
 	s.authHandler = authHandler
+	s.disconnectHandler = disconnectHandler
 	return s
 }
 
+func (session *Session) GetUid() string {
+	return session.uid
+}
+
+func (session *Session) GetNsp() string {
+	return session.nsp
+}
+
 func (session *Session) deferFunc() {
-	session.Conn.Close()
-	session.hub.Unregister(session)
+	session.once.Do(func() {
+		if session.isAuthed {
+			session.hub.Unregister(session)
+		}
+
+		close(session.send)
+
+		session.Conn.Close()
+	})
 
 	if x := recover(); x != nil {
 		fmt.Printf("run time panic: %v", x)
@@ -68,11 +102,11 @@ func (session *Session) readUint16() uint16 {
 }
 
 func (session *Session) skipBeginFlag() {
-	if _, err := session.Reader.ReadBytes('$'); err != nil {
+	if _, err := session.ReadBytes('$'); err != nil {
 		panic(err)
 	}
 
-	char, err1 := session.Reader.ReadByte()
+	char, err1 := session.ReadByte()
 	if err1 != nil {
 		panic(err1)
 	}
@@ -100,18 +134,9 @@ func (session *Session) readMessage(dict *map[interface{}]interface{}) {
 }
 
 func (session *Session) sendMessage(message *Message) {
-	session.sendCmd(message.Cmd)
+	_, err1 := session.Write(message.toBytes())
 
-	objBytes, err := msgpack.Marshal(*message.Content)
-	if err != nil {
-		panic(err)
-	}
-
-	data := []byte{}
-	data = append(data, convertToByte(uint16(len(objBytes)))...)
-	data = append(data, objBytes...)
-
-	if _, err1 := session.Conn.Write(data); err1 != nil {
+	if err1 != nil {
 		panic(err1)
 	}
 }
@@ -120,20 +145,25 @@ func (session *Session) sendCmd(cmd uint16) {
 	data := []byte{'$', '$'}
 	data = append(data, convertToByte(cmd)...)
 
-	if _, err1 := session.Conn.Write(data); err1 != nil {
+	if _, err1 := session.Write(data); err1 != nil {
 		panic(err1)
 	}
 }
 
-func (session *Session) auth(nsp string, message *Message) {
-	uid, err := session.authHandler(message)
+func (session *Session) auth(message *Message) {
+	uid, clientType, err := session.authHandler(message)
 	if err != nil {
 		session.sendCmd(AUTH_FAILED)
 		return
 	}
+
+	session.isAuthed = true
+
+	session.nsp = string(message.Cmd)
 	session.uid = uid
-	h.register <- session
-	h.Join(nsp, session.uid, uid)
+	session.clientType = clientType
+
+	session.hub.Register(session)
 }
 
 func (session *Session) WritePump() {
@@ -142,7 +172,7 @@ func (session *Session) WritePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer ticker.Stop()
 
-	session.Conn.SetWriteDeadline(time.Now().Add(pingWait))
+	session.SetWriteDeadline(time.Now().Add(pingWait))
 
 	for {
 		fmt.Println("write pump")
@@ -152,11 +182,11 @@ func (session *Session) WritePump() {
 				session.sendCmd(INTERNAL_ERROR)
 				return
 			}
-			session.sendMessage(&message)
+			session.sendMessage(message)
 
 		case <-ticker.C:
 			session.sendCmd(PUMP)
-			session.Conn.SetWriteDeadline(time.Now().Add(pingWait))
+			session.SetWriteDeadline(time.Now().Add(pingWait))
 		}
 	}
 }
@@ -168,24 +198,39 @@ func (session *Session) Close() {
 func (session *Session) ReadPump() {
 	defer session.deferFunc()
 
-	session.Conn.SetReadDeadline(time.Now().Add(pingWait))
+	session.SetReadDeadline(time.Now().Add(pingWait))
 
 	for {
 		fmt.Println("read pump")
 		cmd := session.readCmd()
-		session.Conn.SetReadDeadline(time.Now().Add(pingWait))
 
-		if cmd >= 10000 {
+		println(cmd)
+		session.SetReadDeadline(time.Now().Add(pingWait))
+
+		switch {
+		case cmd == CLOSE:
+			return
+
+		case cmd < 1000:
+			continue
+
+		case 1100 <= cmd && cmd < 1300:
 			dict := map[interface{}]interface{}{}
 			session.readMessage(&dict)
 			message := &Message{Cmd: cmd, Content: &dict}
 
-			if nsp, ok := authMap[cmd]; ok {
-				session.auth(nsp, message)
-				continue
-			}
+			session.auth(message)
+		default:
+			dict := map[interface{}]interface{}{}
+			session.readMessage(&dict)
+			message := &Message{Cmd: cmd, Nsp: session.nsp, Uid: session.uid, Content: &dict}
 
 			session.messageHandler(message)
 		}
+		println("superowlf")
 	}
+}
+
+func (session *Session) Send(message *Message) {
+	session.send <- message
 }

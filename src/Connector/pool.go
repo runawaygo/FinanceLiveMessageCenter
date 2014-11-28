@@ -134,7 +134,7 @@ func (p *ClientPool) putToIdle(client interface{}) {
 	p.idleCount++
 }
 
-// Relaase releases the resources used by the pool.
+// ClosePool releases the resources used by the pool.
 func (p *ClientPool) ClosePool() {
 	if p.closed {
 		return
